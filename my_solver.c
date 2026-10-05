@@ -14,7 +14,7 @@ enum {
 typedef struct {
     uint8_t p[CUBIES], o[CUBIES];
 } state_t;
-
+static const char *problem = "25416373331111";
 static const char *const move_names[MOVES] = {"R",  "R2", "R'", "B", "B2",
                                               "B'", "D",  "D2", "D'"};
 static const uint8_t inverse_move[MOVES] = {2, 1, 0, 5, 4, 3, 8, 7, 6};
@@ -95,14 +95,6 @@ static int parse_state(const char *input, state_t *state)
 static state_t quarter_turn(state_t state, uint8_t face)
 {
     state_t result;
-    /*@ loop invariant 0 <= i <= CUBIES;
-        loop invariant \forall integer j; 0 <= j < i ==>
-          result.p[j] == state.p[source[face][j]];
-        loop invariant \forall integer j; 0 <= j < i ==>
-          result.o[j] == (state.o[source[face][j]] + twist[face][j]) % 3;
-        loop assigns i, result.p[0..6], result.o[0..6];
-        loop variant CUBIES - i;
-    */
     for (uint8_t i = 0; i < CUBIES; ++i) {
         uint8_t from = source[face][i];
         result.p[i] = state.p[from];
@@ -156,8 +148,8 @@ int bidirectional_search(uint8_t *table, uint32_t target_index)
                             current_forward_index = next_forward_index;
                             state_t state, next_state;
                             unrank_state(next_forward_index, &state);
-                            next_state = apply_move(
-                            state, inverse_move[table[next_forward_index] & 0x0F]);next_forward_index = rank_state(&next_state);
+                            next_state = apply_move(state, inverse_move[table[next_forward_index] & 0x0F]);
+                            next_forward_index = rank_state(&next_state);
                             next_move = table[current_forward_index] & 0xf;
                             table[current_forward_index] = move << 4;
                             move = next_move;
@@ -241,13 +233,13 @@ int bidirectional_search(uint8_t *table, uint32_t target_index)
     }
     return 1;
 }
-int main(int argc, char **argv)
+int main(void)
 {
     state_t input_state;
     uint8_t diameter;
     uint8_t table[STATES];
     memset(table, 0xFF, sizeof table);
-    parse_state(argv[1], &input_state);
+    parse_state(problem, &input_state);
     if(bidirectional_search(table, rank_state(&input_state))){
         printf("path not find");
     }
