@@ -1,4 +1,12 @@
+---
+title: Assignment 1
+
+---
+
 # Homework 1: Optimizations and RISC-V Assembly
+
+[![hackmd-github-sync-badge](https://hackmd.io/XSqtz7OeSDeFYgp0M1lxWw/badge)](https://hackmd.io/XSqtz7OeSDeFYgp0M1lxWw)
+
 
 ## Project Information
 
@@ -45,6 +53,7 @@ $$
 $$
 
 The internal orientation values `0`, `1`, and `2` correspond to the input digits `1`, `2`, and `3`, respectively.
+
 ### 1.2 State Encoding
 
 The baseline represents 5,040 × 729 = 3,674,160 states. The function `rank_state()` encodes each valid state as an integer in the range 0 to 3,674,159, while `unrank_state()` reconstructs a state from a rank in that range.
@@ -80,7 +89,7 @@ Source: [`build_table()`](https://github.com/ivan125126/minirubik/blob/231796cc4
 
 ### 1.5 Measurements on My Installation
 
-### Host Environment
+#### Host Environment
 
 The following host information was obtained using the Windows `systeminfo` command.
 
@@ -194,94 +203,139 @@ Both loop bounds were set to 8,192. The inner loop consisted of an `addi` instru
 | RV32_ISS | 134,242,306 | 134,242,306 | 1.00000 | 11.00 MHz |
 | 5-stage processor | 268,460,036 | 134,242,306 | 1.99982 | 337.72 kHz |
 
-CPI was calculated as total cycles divided by retired instructions.
-The GUI displayed a rounded CPI of 2 for the 5-stage processor.
+CPI was calculated by dividing the total cycle count by the retired instruction count. For the 5-stage processor, the GUI displayed the rounded value of 2.
 
 ##### Throughput Estimates
 
-The following estimates were calculated from the displayed
-clock rate using:
+The following throughput estimates were derived from the displayed clock rate and the calculated CPI:
 
-IRPS = displayed cycles per second / calculated CPI
+`IRPS = displayed cycles per second / calculated CPI`
 
 | Processor model | Estimated IRPS from the GUI rate |
 | --- | ---: |
 | RV32_ISS | Approximately 11.00 million instructions/s |
 | 5-stage processor | Approximately 168.88 thousand instructions/s |
 
-These values are estimates derived from the displayed GUI rate.
-They are not whole-run average throughput measurements based
-on independently measured elapsed time.
+These values are estimates derived from the GUI's displayed rate. They do not represent whole-run average throughput measured using an independently recorded elapsed time.
 
-### 1.6 Why the Baseline Does Not Fit Ripes
+### 1.6 Why the Baseline Does Not Fit
 
-The original baseline is impractical for this Ripes assignment because :
+The main obstacle to a direct translation of the baseline is the cost of constructing the complete move table. This construction can take substantial time in Ripes and is a concern when considering the assignment's retired-instruction budget of $5 \times 10^7$ per distance-11 input.
 
+[TODO: Complete my own quantitative analysis of the construction cost, the target memory model, and the discussion in Section 7 of the baseline report. Distinguish estimates from measurements and table-construction work from query work.]
 
 
 ## 2. Representation and Search Design
 
 ### 2.1 Target Constraints
 
-static data < 128KiB
-No heap, no recursion, no floating point. 
-Use only RV32I instructions. No extensions are permitted, M included.
-No distance-11 state exceeding 5*10^7 retired instructions on RV32_ISS
+The target implementation must meet the following requirements:
+
+- The combined size of `.data`, `.bss`, and `.rodata` must not exceed 128 KiB.
+- Heap allocation, recursion, and floating-point arithmetic are prohibited.
+- Only RV32I instructions are permitted; no extensions, including M, may be used.
+- With the renderer disabled, no distance-11 input may exceed $5 \times 10^7$ retired instructions on the pinned `RV32_ISS` build.
 
 ### 2.2 Chosen State Representation
 
-[Describe your representation and justify the choice.]
+I retain the state representation used by the baseline in `solver.c`.
 
 ### 2.3 Search Algorithm
 
-[Explain the search procedure, termination, and optimality.]
+Instead of the baseline's single-direction BFS, I use bidirectional search to reduce the search work. I maintain separate indices for the forward and backward queues to track progress in each direction.
 
-### 2.4 Heuristic Design and Admissibility
+[TODO: Explain my search order and stopping condition, and provide my own shortest-solution argument.]
 
-[If heuristics are used, explain their construction and
-why they never overestimate the exact distance.]
+### 2.4 Data Layout and Memory Budget
 
-### 2.5 Data Layout and Memory Budget
+The following sizes describe the dominant arrays in the C version supplied for host checking:
 
-| Data structure | Entries | Bytes/entry | Total bytes |
-| --- | ---: | ---: | ---: |
-| [ ] | [ ] | [ ] | [ ] |
+| Data structure | Entries | Bytes per entry | Total bytes | Storage in the supplied C version |
+| --- | ---: | ---: | ---: | --- |
+| Forward queue | 40,960 | 4 | 163,840 | Automatic array in `bidirectional_search()` |
+| Backward queue | 40,960 | 4 | 163,840 | Automatic array in `bidirectional_search()` |
+| Search move table | 3,674,160 | 1 | 3,674,160 | Automatic array in `main()` |
+| Permutation transition table | 15,120 | 2 | 30,240 | Static const array |
+| Orientation transition table | 2,187 | 2 | 4,374 | Static const array |
+| Combined size of these arrays | — | — | 4,036,454 | — |
 
-- Total static data: [Bytes]
-- Peak working set: [Bytes and calculation]
+The two queues and the search move table have automatic storage duration and are intended to reside on the stack. Their combined array size is 4,001,840 bytes. If the target implementation allocates them on the stack, they are separate from the `.data`, `.bss`, and `.rodata` limit; allocating them in `.bss` would count toward that limit.
 
-### 2.6 Alternatives and Trade-offs
+The two static transition tables contain 34,614 bytes of data. This is their payload size, not the complete linked static-data size. Other constants, strings, pointers, and alignment must also be accounted for. Likewise, 4,036,454 bytes is the sum of the listed arrays, not a measured process working set or a complete stack peak.
 
-[Explain alternatives you evaluated and why you accepted
-or rejected them. Distinguish measurements from estimates.]
+[TODO: Record the complete target static-section sizes and stack allocation, including other local variables and call frames.]
+
+### 2.5 Alternatives and Trade-offs
+
+I also considered iterative deepening with a bounded depth-first search. My initial assumption was that confirming a shortest solution would require retaining visited states and examining every possible state, which led me to expect substantial memory and instruction costs.
+
+[TODO: Re-examine this assumption against the assigned search references before using it to justify the design. Complete my own comparison of the algorithms and their actual resource costs.]
 
 ## 3. C Implementation and Optimization
 
 ### 3.1 Initial Implementation
 
-[Link to the implementation and explain its structure.]
+[Initial C implementation](https://github.com/ivan125126/minirubik/blob/main/quick_solver.c)
 
-### 3.2 Optimization Steps
+The checks below used the separately supplied C source identified by its SHA-256 hash. That source was not identical to `quick_solver.c` on GitHub when the check was performed. A fixed link to the exact tested source is still needed.
 
-| Change | Reason | Operation-count effect | Evidence |
+
+### 3.2 Host Correctness Gates
+
+The following are **Codex-run host diagnostic results**, obtained on October 5, 2026. They are recorded as AI-assisted checking evidence. My personal rerun and its measurement record are still pending; the results are not presented as measurements that I performed independently.
+
+| Gate | Verification method | Diagnostic result | Scope |
 | --- | --- | --- | --- |
-| [ ] | [ ] | [ ] | [ ] |
+| H1: Heuristic admissibility | Inspect whether the tested solver uses a heuristic distance function or table. | Not applicable | This version does not use a heuristic. My shortest-solution argument remains a separate requirement. |
+| H2: Table completeness, maxima, and solved entries | Compare every transition-table entry with a direct turn computed by the baseline, count explicit initializers, and check the auxiliary data. | Passed | All 17,307 transition entries and 60 auxiliary entries or names matched the reference. |
+| H3: Optimal solution length for every state | Build the exact BFS oracle, execute the tested search for every rank, and apply each returned path. | Passed for the diagnostic version | All 3,674,160 states, including all 2,644 distance-11 states, reached solved with a path length equal to the exact BFS distance. |
+| H4: Packed accessors versus an unpacked reference | Determine whether an even/odd-index nibble-table accessor exists; separately check the byte-field extraction operations. | Not applicable to a nibble-indexed table; supplementary field checks passed | This version uses one byte per state with two four-bit fields. The additional 512 field-extraction checks had zero mismatches. |
 
-[Discuss branches, memory traffic, and costly arithmetic.]
+#### Tested Version and Execution Conditions
 
-### 3.3 Host Correctness Gates
+- Tested source: the C file supplied directly in this conversation.
+- Tested source SHA-256: `C0F0013E472DF56BC9C4E5E4B42484C02354461C8E1F2763A4B21F1F02890743`.
+- Exact BFS oracle: baseline `solver.c` from commit [`231796cc48868f4ea276f652139b6bebbad0cd02`](https://github.com/ivan125126/minirubik/blob/231796cc48868f4ea276f652139b6bebbad0cd02/solver.c).
+- Baseline source SHA-256: `562764BAE4A5CA52A57EA82AC7A8490B09F92805AE3FD5BDE1A4E67AF82FBDFC`.
+- Compiler: MSYS2 UCRT64 GCC 15.2.0, using `-O2` and C99.
+- Host executable stack reservation: 32 MiB.
+- Codex-run wall-clock time for the complete H3 diagnostic: **597.083 seconds**, including oracle initialization and both testing phases.
+- H3 process exit code: **0**.
+- My independently reproduced H3 wall-clock time: **[Pending personal rerun]**.
 
-| Gate | Verification method | Result | Evidence |
-| --- | --- | --- | --- |
-| H1: Heuristic admissibility over all states | [ ] | [ ] | [ ] |
-| H2: Table completeness, maxima, solved entries | [ ] | [ ] | [ ] |
-| H3: Optimal solution length for every state | [ ] | [ ] | [ ] |
-| H4: Packed accessors match unpacked references | [ ] | [ ] | [ ] |
+The H3 diagnostic used a copy of the supplied source with capacity checks inserted before appending to either queue. The checks reported an error if an append would exceed 40,960 entries; they did not enlarge the queues or change the search strategy. No queue-append capacity check was triggered during the complete run.
 
-- H3 wall-clock time: [Seconds]
-- Exact BFS oracle: [Implementation / version]
+The verifier first checked all distance-11 states, then all remaining states. For each input, it initialized the search table, invoked the search function, checked that the emitted moves were valid, applied the path, and compared its length with the exact BFS distance. This tested the search and path extraction on the host; it did not verify the original `main()` input interface or the RV32I target implementation.
 
-[If a gate is inapplicable, explain why.]
+The end of the raw H3 log was:
+
+```text
+H3 phase=1 complete total=3674160 hard=2644
+H3 PASS all=3674160 hard=2644
+```
+
+#### H2 Table Details
+
+The permutation table contains 15,120 explicit values, and the orientation table contains 2,187. All three permutation rows have a maximum of 5,039; all three orientation rows have a maximum of 728. The entries for the solved input are:
+
+| Face index | Permutation transition from solved | Orientation transition from solved |
+| --- | ---: | ---: |
+| 0 | 1,104 | 426 |
+| 1 | 9 | 16 |
+| 2 | 198 | 0 |
+
+These are transition values, so the solved-input entry records the result of a turn rather than necessarily zero. The auxiliary checks covered `source`, `twist`, `inverse_move`, and `move_names`, with zero mismatches.
+
+#### H4 Scope and Remaining Evidence
+
+The supplementary test checked all 256 possible byte values at both even and odd array positions. Extracted high and low fields agreed with arithmetic reference values in all 512 cases. This checks the field-extraction operations; it does not independently establish that every field update in the search has the intended meaning.
+
+The host checks do not establish T5–T7 or compliance with the Ripes retired-instruction budget. Results must also be rerun after substantive source changes.
+
+- Exact tested-source link: **[Upload and link the version identified above]**.
+- Verification harness and reproduction script: **[Add public repository links]**.
+- Raw H2 and H3 logs and execution record: **[Add public repository links]**.
+
 
 ## 4. Hand-written RV32I Implementation
 
@@ -393,6 +447,12 @@ memory updates, and why the observed result is correct.]
 
 
 I used ChatGPT to prepare an initial report outline, obtain explanations of the baseline code, assist with arithmetic checks on the measurement data, and polish the English wording and Markdown formatting of the host-information and memory-measurement sections.
+
+I also used Codex to refine the wording and organization of the existing report and to generate and execute a host-side diagnostic harness for the C source that I supplied. Codex checked the transition tables, auxiliary data, returned paths, exact solution lengths, and basic byte-field extraction operations. It added queue-append capacity checks to a diagnostic copy of the source without rewriting the search algorithm. The results and the 597.083-second run time in Section 3.2 came from this Codex-run diagnostic.
+
+The exact tested source is identified separately from the GitHub version. My personal rerun record remains pending in this draft. The diagnostic results do not replace my own design argument, required measurements, RV32I implementation, or technical analysis.
+
+[TODO: Record my actual contribution to reviewing the harness and independently verifying the results, together with the affected commits or report revisions.]
 
 ## 9. Conclusions and Remaining Limitations
 
