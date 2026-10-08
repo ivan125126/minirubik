@@ -169,8 +169,8 @@ E20:
     add a1, t0, t2
     add a1, a1, t1
 # create queue and initialize
-    li t0, 81920        #uint32_t forward_queue[20480]; //    //s0
-    sub sp, sp, t0      #uint32_t backward_queue[20480];             //s1
+    li t0, 163840        #uint32_t forward_queue[40960]; //    //s0
+    sub sp, sp, t0      #uint32_t backward_queue[40960];             //s1
     mv s0, sp           #uint32_t forward_head = 0, forward_tail = 1, forward_level_end = 1; //s2 s3 s4
     sub sp, sp, t0      #uint32_t backward_head = 0, backward_tail = 1, backward_level_end = 1; //s5 s6 s7
     mv s1, sp           #uint8_t level = 0; //s8
@@ -192,9 +192,10 @@ E20:
 while_level_under_11:
     li t0, 11
     bge s8, t0, level_over_11
-    bne s2, s4, no_add_level
+    bne s2, s4, forward_no_add_level
     mv s4, s3
     addi s8, s8, 1
+forward_no_add_level:
     bne s5, s7, no_add_level
     mv s7, s6
     addi s8, s8, 1
@@ -359,14 +360,231 @@ backward_next_turn:
     add t3, t3, t0
     addi t4, t4, 1458          # 729 bytes per orientation row
     li t0, 3
+    bltu a2, t0, backward_face
     j while_level_under_11
 forward_meeting:
-
-backward_meeting:
-
-level_over_11:
+    slli t2, a2, 1
+    add t2, t2, a2
+    add t2, t2, a5             # move = face * 3 + turn
+    add t2, t2, t5
+    lbu s0, 0(t2)
+forward_meeting_loop:
+    beq a1, a6, leave_meeting_loop
+    mv s9, a6
+    #s2: p = a6 / 729
+    #s3: o = a6 % 729
+    mv s3, a6          #p = current_forward_index / 729
+    li s2, 0           #o = current_forward_index % 729
+    li t0, 2985984            # 729 << 12
+    li t1, 4096               # quotient bit 12
+forward_meet_divide:
+    bltu s3, t0, forward_meet_divide_skip
+    sub s3, s3, t0
+    or s2, s2, t1
+forward_meet_divide_skip:
+    srli t0, t0, 1
+    srli t1, t1, 1
+    bne t1, zero, forward_meet_divide
+    #t5;
+    add t0, a0, a6
+    lbu t1, 0(t0)
+    andi t0, t1, 15
+    add t0, t0, t5
+    lbu t0, 0(t0) #t0 = inverse_move[table[next_forward_index] & 0x0F]
+    #a2: turn = t0 % 3; a3: face = t0 / 3
+    mv a2, t0
+    li s4, 0
+    li s5, 0
+    li t0, 3
+forward_mod_3:
+    bltu a2, t0, forward_exit_mod_3
+    li t1, 10080
+    add s4, s4, t1
+    addi s5, s5, 1458
+    sub a2, a2, t0
+    j forward_mod_3
+forward_exit_mod_3:
+    la t3, permutation
+    la t4, orientation
+forward_meet_turn:
+    slli s2, s2, 1
+    slli s3, s3, 1
+    add t0, s4, t3
+    add t1, s5, t4
+    add t0, t0, s2
+    add t1, t1, s3
+    lhu s2, 0(t0)
+    lhu s3, 0(t1)
+    addi a2, a2, -1
+    bge a2, zero, forward_meet_turn
+    #a6 = s2 * 729 + s3
+    mv a6, s2
+    slli t2, s2, 3
+    add a6, a6, t2
+    slli t2, s2, 4
+    add a6, a6, t2
+    slli t2, s2, 6
+    add a6, a6, t2
+    slli t2, s2, 7
+    add a6, a6, t2  
+    slli t2, s2, 9
+    add a6, a6, t2
+    add a6, a6, s3
+    #s1 = lbu(a0 + s9) & 15
+    add t0, a0, s9
+    lbu t1, 0(t0)
+    andi s1, t1, 15
+    slli s0, s0, 4
+    sb s0, 0(t0)
+    mv s0, s1
+    j forward_meeting_loop
     
+backward_meeting:
+    slli t2, a2, 1
+    add t2, t2, a2
+    add s0, t2, a5             # move = face * 3 + turn
+    mv t0, s9
+    mv s9, a6
+    mv a6, t0
+backward_meeting_loop:
+    beq a1, a6, leave_meeting_loop
+    mv s9, a6
+    #s2: p = a6 / 729
+    #s3: o = a6 % 729
+    mv s3, a6          #p = current_backward_index / 729
+    li s2, 0           #o = current_backward_index % 729
+    li t0, 2985984            # 729 << 12
+    li t1, 4096               # quotient bit 12
+backward_meet_divide:
+    bltu s3, t0, backward_meet_divide_skip
+    sub s3, s3, t0
+    or s2, s2, t1
+backward_meet_divide_skip:
+    srli t0, t0, 1
+    srli t1, t1, 1
+    bne t1, zero, backward_meet_divide
+    #t5;
+    add t0, a0, a6
+    lbu t1, 0(t0)
+    andi t0, t1, 15
+    add t0, t0, t5
+    lbu t0, 0(t0) #t0 = inverse_move[table[next_backward_index] & 0x0F]
+    #a2: turn = t0 % 3; a3: face = t0 / 3
+    mv a2, t0
+    li s4, 0
+    li s5, 0
+    li t0, 3
+backward_mod_3:
+    bltu a2, t0, backward_exit_mod_3
+    li t1, 10080
+    add s4, s4, t1
+    addi s5, s5, 1458
+    sub a2, a2, t0
+    j backward_mod_3
+backward_exit_mod_3:
+    la t3, permutation
+    la t4, orientation
+backward_meet_turn:
+    slli s2, s2, 1
+    slli s3, s3, 1
+    add t0, s4, t3
+    add t1, s5, t4
+    add t0, t0, s2
+    add t1, t1, s3
+    lhu s2, 0(t0)
+    lhu s3, 0(t1)
+    addi a2, a2, -1
+    bge a2, zero, backward_meet_turn
+    #a6 = s2 * 729 + s3
+    mv a6, s2
+    slli t2, s2, 3
+    add a6, a6, t2
+    slli t2, s2, 4
+    add a6, a6, t2
+    slli t2, s2, 6
+    add a6, a6, t2
+    slli t2, s2, 7
+    add a6, a6, t2
+    slli t2, s2, 9
+    add a6, a6, t2
+    add a6, a6, s3
+    #s1 = lbu(a0 + s9)
+    add t0, a0, s9
+    lbu s1, 0(t0)
+    slli s0, s0, 4
+    sb s0, 0(t0)
+    mv s0, s1
+    j backward_meeting_loop
+    
+level_over_11:
+    slli t0, s5, 2
+    add t0, s1, t0
+    lw s9, 0(t0)        #s9 = backward_queue[backward_head]
+    addi s5, s5, 1
+    mv s11, s9          #p = current_backward_index / 729
+    li s10, 0           #o = current_backward_index % 729
+    li t0, 2985984            # 729 << 12
+    li t1, 4096               # quotient bit 12
+last_level_divide:
+    bltu s11, t0, last_level_divide_skip
+    sub s11, s11, t0
+    or s10, s10, t1
+last_level_divide_skip:
+    srli t0, t0, 1
+    srli t1, t1, 1
+    bne t1, zero, last_level_divide
 
+    li a2, 0
+    la t3, permutation
+    la t4, orientation
+    la t5, inverse_move
+last_level_face:
+    mv a3, s10
+    mv a4, s11
+    li a5, 0
+last_level_turn:
+    slli t0, a3, 1
+    add t0, t3, t0
+    lhu a3, 0(t0)
+    slli t0, a4, 1
+    add t0, t4, t0
+    lhu a4, 0(t0)
+    #next_index = next_p * 729 + next_o.
+    mv a6, a3
+    slli t2, a3, 3
+    add a6, a6, t2
+    slli t2, a3, 4
+    add a6, a6, t2
+    slli t2, a3, 6
+    add a6, a6, t2
+    slli t2, a3, 7
+    add a6, a6, t2
+    slli t2, a3, 9
+    add a6, a6, t2
+    add a6, a6, a4
+
+    add t0, a0, a6
+    lbu t1, 0(t0)
+    andi t2, t1, 240
+    li t6, 240
+    bne t2, t6, backward_meeting #path found
+last_level_next_turn:
+    li t0, 3
+    addi a5, a5, 1
+    blt a5, t0, last_level_turn
+    addi a2, a2, 1
+    li t0, 10080               # 5040 bytes per permutation row
+    add t3, t3, t0
+    addi t4, t4, 1458          # 729 bytes per orientation row
+    li t0, 3
+    bltu a2, t0, last_level_face
+    bne s5, s6, level_over_11
+    j no_solution
+leave_meeting_loop:
+    add t0, a0, a1
+    slli s0, s0, 4
+    sb s0, 0(t0)
+#print solution
 no_solution:
     li a0, 0
     li a7, 10
@@ -416,5 +634,3 @@ move_names:
 
 problem: 
     .asciz "25416373331111"
-
-
