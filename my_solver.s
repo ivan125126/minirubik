@@ -585,6 +585,87 @@ leave_meeting_loop:
     slli s0, s0, 4
     sb s0, 0(t0)
 #print solution
+    mv s10, a0
+    mv s9, a1
+    la s6, move_names
+
+print_path_loop:
+    beq s9, zero, print_path_done
+
+    # move = table[current_rank] >> 4
+    add t0, s10, s9
+    lbu s0, 0(t0)
+    srli s0, s0, 4
+
+    # Print move_names[move]; entries are 32-bit pointers.
+    slli t0, s0, 2
+    add t0, s6, t0
+    lw a0, 0(t0)
+    li a7, 4
+    ecall
+    li a0, 32
+    li a7, 11
+    ecall
+
+    # s2 = current_rank / 729; s3 = current_rank % 729.
+    mv s3, s9
+    li s2, 0
+    li t0, 2985984       # 729 << 12
+    li t1, 4096         # quotient bit 12
+print_rank_divide:
+    bltu s3, t0, print_rank_divide_skip
+    sub s3, s3, t0
+    or s2, s2, t1
+print_rank_divide_skip:
+    srli t0, t0, 1
+    srli t1, t1, 1
+    bne t1, zero, print_rank_divide
+
+    # Select the face row; s0 becomes move % 3.
+    la t3, permutation
+    la t4, orientation
+    li t0, 3
+print_face_loop:
+    bltu s0, t0, print_turn_start
+    addi s0, s0, -3
+    li t1, 10080        # 5040 halfwords per face
+    add t3, t3, t1
+    addi t4, t4, 1458   # 729 halfwords per face
+    j print_face_loop
+
+print_turn_start:
+    addi s0, s0, 1      # 1, 2, or 3 quarter turns
+print_turn_loop:
+    slli t0, s2, 1
+    add t0, t3, t0
+    lhu s2, 0(t0)
+    slli t0, s3, 1
+    add t0, t4, t0
+    lhu s3, 0(t0)
+    addi s0, s0, -1
+    bne s0, zero, print_turn_loop
+
+    # current_rank = s2 * 729 + s3
+    mv s9, s2
+    slli t2, s2, 3
+    add s9, s9, t2
+    slli t2, s2, 4
+    add s9, s9, t2
+    slli t2, s2, 6
+    add s9, s9, t2
+    slli t2, s2, 7
+    add s9, s9, t2
+    slli t2, s2, 9
+    add s9, s9, t2
+    add s9, s9, s3
+    j print_path_loop
+
+print_path_done:
+    li a0, 10          # newline character
+    li a7, 11
+    ecall
+    j no_solution      # existing program-exit block
+
 no_solution:
     li a0, 0
     li a7, 10
