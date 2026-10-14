@@ -1,3 +1,6 @@
+# Canonical source: run build_led.py before loading into Ripes 5b8a616.
+.equ RENDER, 1
+.equ LED_DELAY, 4000000
 # This program will solve the state in .data
 .text
 #init table
@@ -590,6 +593,10 @@ leave_meeting_loop:
     la s6, move_names
 
 print_path_loop:
+.if RENDER
+    j render_cube
+render_resume:
+.endif
     beq s9, zero, print_path_done
 
     # move = table[current_rank] >> 4
@@ -670,6 +677,186 @@ no_solution:
     li a0, 0
     li a7, 10
     ecall
+.if RENDER
+# Entry from print_path_loop, with s9 = actual current solution-path rank.
+# s6 (move names), s9 (rank), and s10 (move table) are preserved.
+# All other registers are scratch here: the output loop recomputes them.
+# Direct jumps keep the solver and renderer free of function calls/jalr.
+render_cube:
+    li s7, LED_MATRIX_0_BASE
+    li s5, LED_MATRIX_0_WIDTH
+    li s11, LED_MATRIX_0_HEIGHT
+    li t0, 35
+    bltu s5, t0, render_resume
+    li t0, 25
+    bltu s11, t0, render_resume
+
+    # Clear the complete peripheral, including unused slots and spare rows.
+    mv t0, s7
+    mv t1, s11
+render_clear_row:
+    mv t2, s5
+render_clear_pixel:
+    sw zero, 0(t0)
+    addi t0, t0, 4
+    addi t2, t2, -1
+    bne t2, zero, render_clear_pixel
+    addi t1, t1, -1
+    bne t1, zero, render_clear_row
+
+    # Scratch: cp[8] at sp, co[8] at sp+8, available[7] at sp+16.
+    # Physical corner 0 is fixed FUL; moving corners are numbered 1..7.
+    addi sp, sp, -32
+    sb zero, 0(sp)
+    sb zero, 8(sp)
+    li t0, 1
+    addi t1, sp, 16
+render_available:
+    sb t0, 0(t1)
+    addi t0, t0, 1
+    addi t1, t1, 1
+    li t2, 8
+    bne t0, t2, render_available
+
+    # Divide current rank into permutation and orientation without RV32M.
+    mv a1, s9
+    li a0, 0
+    li t0, 2985984
+    li t1, 4096
+render_rank_divide:
+    bltu a1, t0, render_rank_skip
+    sub a1, a1, t0
+    or a0, a0, t1
+render_rank_skip:
+    srli t0, t0, 1
+    srli t1, t1, 1
+    bne t1, zero, render_rank_divide
+
+    la s0, render_factorials
+    li s1, 0
+render_permutation:
+    lw t0, 0(s0)
+    li t1, 0
+render_factor_divide:
+    bltu a0, t0, render_factor_done
+    sub a0, a0, t0
+    addi t1, t1, 1
+    j render_factor_divide
+render_factor_done:
+    addi t2, sp, 16
+    add t2, t2, t1
+    lbu t3, 0(t2)
+    add t4, sp, s1
+    sb t3, 1(t4)
+    li t4, 6
+    sub t4, t4, s1
+render_remove_available:
+    bgeu t1, t4, render_remove_done
+    lbu t3, 1(t2)
+    sb t3, 0(t2)
+    addi t2, t2, 1
+    addi t1, t1, 1
+    j render_remove_available
+render_remove_done:
+    addi s0, s0, 4
+    addi s1, s1, 1
+    li t0, 7
+    bne s1, t0, render_permutation
+
+    # Six independent trits; recover corner 7 from the twist-sum constraint.
+    la s0, render_powers3
+    li s1, 0
+    li a2, 0
+render_orientation:
+    lw t0, 0(s0)
+    li t1, 0
+render_trit_divide:
+    bltu a1, t0, render_trit_done
+    sub a1, a1, t0
+    addi t1, t1, 1
+    j render_trit_divide
+render_trit_done:
+    add t2, sp, s1
+    sb t1, 9(t2)
+    add a2, a2, t1
+    addi s0, s0, 4
+    addi s1, s1, 1
+    li t0, 6
+    bne s1, t0, render_orientation
+    li t0, 3
+render_sum_mod3:
+    bltu a2, t0, render_sum_done
+    sub a2, a2, t0
+    j render_sum_mod3
+render_sum_done:
+    beq a2, zero, render_last_orientation
+    sub a2, t0, a2
+render_last_orientation:
+    sb a2, 15(sp)
+
+    # Descriptor = position, local sticker slot, x, y (four bytes).
+    la s0, render_facelets
+    li s1, 24
+render_facelet:
+    lbu t0, 0(s0)
+    add t0, sp, t0
+    lbu t1, 0(t0)
+    lbu t2, 8(t0)
+    lbu t3, 1(s0)
+    add t2, t2, t3
+    li t3, 3
+    bltu t2, t3, render_sticker_slot
+    addi t2, t2, -3
+render_sticker_slot:
+    # Color = corner_colors[cp[position]][(slot + co[position]) % 3].
+    slli t0, t1, 1
+    add t0, t0, t1
+    add t0, t0, t2
+    la t1, render_corner_colors
+    add t0, t0, t1
+    lbu t0, 0(t0)
+    slli t0, t0, 2
+    la t1, render_rgb
+    add t0, t0, t1
+    lw s2, 0(t0)
+
+    # Address = BASE + 4 * (y * WIDTH + x), row-major.
+    lbu t0, 2(s0)
+    lbu t1, 3(s0)
+render_y_times_width:
+    beq t1, zero, render_address_done
+    add t0, t0, s5
+    addi t1, t1, -1
+    j render_y_times_width
+render_address_done:
+    slli t0, t0, 2
+    add t0, t0, s7
+    slli t5, s5, 2
+    li s8, 3
+render_block_row:
+    mv t4, t0
+    li t3, 4
+render_block_column:
+    sw s2, 0(t4)
+    addi t4, t4, 4
+    addi t3, t3, -1
+    bne t3, zero, render_block_column
+    add t0, t0, t5
+    addi s8, s8, -1
+    bne s8, zero, render_block_row
+    addi s0, s0, 4
+    addi s1, s1, -1
+    bne s1, zero, render_facelet
+    addi sp, sp, 32
+
+    # GUI-only pause. Runtime depends on the selected simulator and host.
+    li t0, LED_DELAY
+render_delay:
+    beq t0, zero, render_resume
+    addi t0, t0, -1
+    j render_delay
+
+.endif
 .data
 move_r:
     .asciz "R"
@@ -715,3 +902,31 @@ move_names:
 
 problem: 
     .asciz "25416373331111"
+
+.if RENDER
+.align 4
+render_factorials:
+    .word 720, 120, 24, 6, 2, 1, 1
+render_powers3:
+    .word 243, 81, 27, 9, 3, 1
+# Face color indices: U=0 (white), L=1 (orange), F=2 (green),
+# R=3 (red), B=4 (blue), D=5 (yellow). Values are 0x00RRGGBB.
+render_rgb:
+    .word 0xffffff, 0xff8800, 0x00cc44, 0xff2222, 0x2266ff, 0xffee00
+# Corner sticker order: U/D first, then the two side stickers in cyclic order.
+# Fixed FUL, FUR, FDR, FDL, BUR, BDR, BDL, BUL.
+render_corner_colors:
+    .byte 0,2,1, 0,3,2, 5,2,3, 5,1,2
+    .byte 0,4,3, 5,3,4, 5,4,1, 0,1,4
+# Exterior net: U above F; L F R B across; D below F.
+# Every record is (physical corner, sticker slot, block x, block y).
+# Four records per face, in row-major order. Each block is 4 x 3 LEDs.
+render_facelets:
+    .byte 7,0,9,2,   4,0,13,2,  0,0,9,5,   1,0,13,5
+    .byte 7,1,0,9,   0,2,4,9,   6,2,0,12,  3,1,4,12
+    .byte 0,1,9,9,   1,2,13,9,  3,2,9,12,  2,1,13,12
+    .byte 1,1,18,9,  4,2,22,9,  2,2,18,12, 5,1,22,12
+    .byte 4,1,27,9,  7,2,31,9,  5,2,27,12, 6,1,31,12
+    .byte 3,0,9,16,  2,0,13,16, 6,0,9,19,  5,0,13,19
+
+.endif
